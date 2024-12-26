@@ -4,6 +4,7 @@ library(DT)
 library(tidyverse)
 library(DBI)
 library(readxl)
+library(yaml)
 
 
 downloadButton <- function(...) {
@@ -12,11 +13,20 @@ downloadButton <- function(...) {
   tag
 }
 
-con <- dbConnect(odbc::odbc(), Driver = "{ODBC Driver 17 for SQL Server}", 
-                 Server = "YNBBSTVWP02.montefiore.org\\PROCDATASRVPROD", Database = "Prime", 
-                 Port = 56381, uid = "Hjiang", pwd = "Haoran123", timeout = 99)
 
-mhs_poh_tbl = tbl(con, 'vw_MHS_POH_ENHANCED_3YEAR_ROLLING2')
+config <- yaml::read_yaml('config.yml')
+con_string = paste0(
+  "DSN=SQLServerMIT;UID=DM_MONTYNT\\",
+  config$database$user,
+  ";",
+  "PWD=",
+  config$database$pwd
+)
+
+con <- dbConnect(odbc::odbc(), .connection_string = con_string)
+
+
+mhs_poh_tbl = tbl(con, 'vw_MHS_POH_ENHANCED_3YEAR_ROLLING')
 
 column_reorder_order = function(tbl_name) {
   sql_script = paste('select top 10* from', tbl_name)
@@ -29,7 +39,7 @@ column_reorder_order = function(tbl_name) {
   
 }
 
-poh_col_order = column_reorder_order('vw_MHS_POH_ENHANCED_3YEAR_ROLLING2')
+poh_col_order = column_reorder_order('vw_MHS_POH_ENHANCED_3YEAR_ROLLING')
 
 poh_col_order[[1]][poh_col_order[[1]] == 'PROPOSED_PRICE'] = 'Proposed Price'
 poh_col_order[[1]][poh_col_order[[1]] == 'C_RATE_MFG'] = 'C Rate MFG'
@@ -41,14 +51,14 @@ poh_col_order[[2]][poh_col_order[[2]] == 'PROPOSED_PRICE'] = 'Proposed Price'
 poh_col_order[[2]][poh_col_order[[2]] == 'C_RATE_MFG'] = 'C Rate MFG'
 poh_col_order[[2]][poh_col_order[[2]] == 'XREF_ITEM_DESCRIPTION'] = 'XREF ITEM DESCRIPTION'
 poh_col_order[[2]][poh_col_order[[2]] == 'XREF_PART_NUMBER'] = 'XREF PART NUMBER'
-#poh_col_order[[1]][c(131,133,134, 135)] = c('Proposed Price', 'C Rate MFG', 
+#poh_col_order[[1]][c(131,133,134, 135)] = c('Proposed Price', 'C Rate MFG',
 #                                            'XREF ITEM DESCRIPTION'
 #                                            ,'XREF PART NUMBER')
 
 
 
 poh_col_order[[1]] = poh_col_order[[1]][-136]
-#poh_col_order[[2]][c(131,133,134, 135)] = c('Proposed Price', 'C Rate MFG', 
+#poh_col_order[[2]][c(131,133,134, 135)] = c('Proposed Price', 'C Rate MFG',
 #                                            'XREF ITEM DESCRIPTION'
 #                                            ,'XREF PART NUMBER')
 poh_col_order[[2]] = poh_col_order[[2]][-136]
@@ -188,63 +198,88 @@ shinyApp(
       updateSelectInput(inputId = 'description_col', choices = choices)
     })
     
+    
+    # Progress_bar_Start ------------------------------------------------------
+    
     contract_res <- eventReactive(input$action_final, {
-      req(
-        raw_contract(),
-        input$price_col,
-        input$uom_col,
-        input$c_rate_col,
-        input$description_col,
-        input$catalog_col,
-        input$tick_choice,
-        input$character_choice
-      )
-      
-      # Initial transformation
-      temp <- raw_contract() %>%
-        rename(
-          `Proposed Price` = input$price_col,
-          UOM = input$uom_col,
-          `C Rate MFG` = input$c_rate_col,
-          `XREF ITEM DESCRIPTION` = input$description_col,
-          `XREF PART NUMBER` = input$catalog_col
-        ) %>%
-        select(`Proposed Price`,
-               UOM,
-               `C Rate MFG`,
-               `XREF ITEM DESCRIPTION`,
-               `XREF PART NUMBER`)
-      
-      if (input$tick_choice == "Yes") {
-        if (input$character_choice == "Yes") {
-          bind_rows(
-            temp %>%
-              mutate(`XREF PART NUMBER` = substr(
-                `XREF PART NUMBER`, 2, nchar(`XREF PART NUMBER`)
-              )),
-            temp %>%
-              mutate(
-                `XREF PART NUMBER` = substr(`XREF PART NUMBER`, 2, nchar(`XREF PART NUMBER`)) %>%
-                  gsub("[^[:alnum:]]", "", .)
-              )
-          ) %>%
-            unique()
-        } else {
-          temp %>%
-            mutate(`XREF PART NUMBER` = substr(`XREF PART NUMBER`, 2, nchar(`XREF PART NUMBER`)))
-        }
-      } else {
-        if (input$character_choice == "Yes") {
-          bind_rows(temp, temp %>%
-                      mutate(
-                        `XREF PART NUMBER` = gsub("[^[:alnum:]]", "", `XREF PART NUMBER`)
-                      )) %>%
-            unique()
-        } else {
-          temp
-        }
-      }
+      withProgress(message = 'Data Collection in progress',
+                   detail = 'This may take a while...',
+                   value = 0,
+                   # Initial progress value
+                   {
+                     req(
+                       raw_contract(),
+                       input$price_col,
+                       input$uom_col,
+                       input$c_rate_col,
+                       input$description_col,
+                       input$catalog_col,
+                       input$tick_choice,
+                       input$character_choice
+                     )
+                     
+                     # Step 1: Initial transformation (update progress to 30%)
+                     incProgress(0.3, detail = "Transforming raw contract data...")
+                     Sys.sleep(0.5) # Simulated delay for visibility of the progress bar
+                     
+                     temp <- raw_contract() %>%
+                       rename(
+                         `Proposed Price` = input$price_col,
+                         UOM = input$uom_col,
+                         `C Rate MFG` = input$c_rate_col,
+                         `XREF ITEM DESCRIPTION` = input$description_col,
+                         `XREF PART NUMBER` = input$catalog_col
+                       ) %>%
+                       select(`Proposed Price`,
+                              UOM,
+                              `C Rate MFG`,
+                              `XREF ITEM DESCRIPTION`,
+                              `XREF PART NUMBER`)
+                     
+                     # Step 2: Apply transformations based on input choices (update progress to 60%)
+                     incProgress(0.3, detail = "Applying transformations...")
+                     Sys.sleep(0.5) # Simulated delay for visibility of the progress bar
+                     
+                     temp <- if (input$tick_choice == "Yes") {
+                       if (input$character_choice == "Yes") {
+                         bind_rows(
+                           temp %>%
+                             mutate(`XREF PART NUMBER` = substr(
+                               `XREF PART NUMBER`, 2, nchar(`XREF PART NUMBER`)
+                             )),
+                           temp %>%
+                             mutate(
+                               `XREF PART NUMBER` = `XREF PART NUMBER` %>%
+                                 substr(2, nchar(.)) %>%
+                                 gsub("[^[:alnum:]]", "", .)
+                             )
+                         ) %>% unique()
+                       } else {
+                         temp %>%
+                           mutate(`XREF PART NUMBER` = substr(`XREF PART NUMBER`, 2, nchar(`XREF PART NUMBER`)))
+                       }
+                     } else {
+                       if (input$character_choice == "Yes") {
+                         bind_rows(temp, temp %>%
+                                     mutate(
+                                       `XREF PART NUMBER` = gsub("[^[:alnum:]]", "", `XREF PART NUMBER`)
+                                     )) %>% unique()
+                       } else {
+                         temp
+                       }
+                     }
+                     
+                     # Step 3: Finalize and return the result (update progress to 100%)
+                     incProgress(0.4, detail = "Finalizing and returning results...")
+                     Sys.sleep(0.5) # Simulated delay for visibility of the progress bar
+                     
+                     temp
+                   })
     })
+    
+    
+    
+    # Progress_bar_end --------------------------------------------------------
     
     
     
@@ -254,92 +289,104 @@ shinyApp(
     output$clean_contract <- renderDataTable({
       contract_res()
     })
+    
+    
+    
     po_raw <- eventReactive(input$action_po_collect, {
-      req(input$date)
-      start_date = isolate(as.character(input$date[[1]]))
-      end_date = isolate(as.character(input$date[[2]]))
-      
-      # material = contract_res() %>% pull(`XREF PART NUMBER`)
-      # mhs_poh_tbl %>%
-      #   filter(CREATE_DATE >= start_date, CREATE_DATE <= end_date) %>%
-      #   filter(
-      #     MATERIAL_NUM %in% material | VENDOR_MATERIAL_NUM %in% material |
-      #       MANUFACTURER_PART_NUM %in% material |
-      #       PREMIER_MANUFACTURER_CATALOG_NUMBER %in% material
-      #   ) %>%
-      #   select(all_of(poh_col_order[[1]])) %>%
-      #   collect() %>%
-      #   select(all_of(poh_col_order[[2]])) %>%
-      #   select(PK_ID:`10`) -> poh_data
-      temp = bind_rows(
-        
-        mhs_poh_tbl %>%
-          select(PK_ID:`10`) %>%
-          inner_join(
-            contract_res(),
-            by = c('MATERIAL_NUM' = 'XREF PART NUMBER'),
-            keep = T,
-            copy = T
-          ) %>%
-          select(all_of(poh_col_order[[1]])) %>%
-          collect() %>%
-          select(all_of(poh_col_order[[2]])) %>%
-          
-          filter(CREATE_DATE >= start_date, CREATE_DATE <= end_date)
-        ,
-        mhs_poh_tbl %>%
-          select(PK_ID:`10`) %>%
-          inner_join(
-            contract_res(),
-            by = c('VENDOR_MATERIAL_NUM' = 'XREF PART NUMBER'),
-            keep = T,
-            copy = T
-          ) %>%
-          select(all_of(poh_col_order[[1]])) %>%
-          collect() %>%
-          select(all_of(poh_col_order[[2]])) %>%
-          
-          filter(CREATE_DATE >= start_date, CREATE_DATE <= end_date),
-        mhs_poh_tbl %>%
-          select(PK_ID:`10`) %>%
-          inner_join(
-            contract_res(),
-            by = c('MANUFACTURER_PART_NUM' = 'XREF PART NUMBER'),
-            keep = T,
-            copy = T
-          ) %>%
-          select(all_of(poh_col_order[[1]])) %>%
-          collect() %>%
-          select(all_of(poh_col_order[[2]])) %>%
-          
-          filter(CREATE_DATE >= start_date, CREATE_DATE <= end_date),
-        mhs_poh_tbl %>%
-          select(PK_ID:`10`) %>%
-          inner_join(
-            contract_res(),
-            by = c('PREMIER_MANUFACTURER_CATALOG_NUMBER' = 'XREF PART NUMBER'),
-            keep = T,
-            copy = T
-          ) %>%
-          select(all_of(poh_col_order[[1]])) %>%
-          collect() %>%
-          select(all_of(poh_col_order[[2]])) %>%
-          
-          filter(CREATE_DATE >= start_date, CREATE_DATE <= end_date)
-      ) %>% 
-        group_by(PK_ID) %>%
-        filter(row_number() == 1) %>%
-        ungroup() %>%
-        filter(PO_SPEND != 0)
-      
-      
+      withProgress(message = "Processing PO Data",
+                   detail = "This may take a while...",
+                   value = 0,
+                   # Initial progress value
+                   {
+                     req(input$date)
+                     start_date <- isolate(as.character(input$date[[1]]))
+                     end_date <- isolate(as.character(input$date[[2]]))
+                     
+                     # Step 1: Initialize progress (update progress to 10%)
+                     incProgress(0.1, detail = "Preparing data...")
+                     Sys.sleep(0.5) # Simulated delay for better visibility
+                     
+                     # Step 2: Perform the main data binding and filtering (update progress incrementally)
+                     temp <- bind_rows({
+                       incProgress(0.2, detail = "Processing MATERIAL_NUM...")
+                       Sys.sleep(0.5) # Simulated delay
+                       mhs_poh_tbl %>%
+                         select(PK_ID:`10`) %>%
+                         inner_join(
+                           contract_res(),
+                           by = c('MATERIAL_NUM' = 'XREF PART NUMBER'),
+                           keep = TRUE,
+                           copy = TRUE
+                         ) %>%
+                         select(all_of(poh_col_order[[1]])) %>%
+                         collect() %>%
+                         select(all_of(poh_col_order[[2]])) %>%
+                         filter(CREATE_DATE >= start_date, CREATE_DATE <= end_date)
+                     }, {
+                       incProgress(0.2, detail = "Processing VENDOR_MATERIAL_NUM...")
+                       Sys.sleep(0.5) # Simulated delay
+                       mhs_poh_tbl %>%
+                         select(PK_ID:`10`) %>%
+                         inner_join(
+                           contract_res(),
+                           by = c('VENDOR_MATERIAL_NUM' = 'XREF PART NUMBER'),
+                           keep = TRUE,
+                           copy = TRUE
+                         ) %>%
+                         select(all_of(poh_col_order[[1]])) %>%
+                         collect() %>%
+                         select(all_of(poh_col_order[[2]])) %>%
+                         filter(CREATE_DATE >= start_date, CREATE_DATE <= end_date)
+                     }, {
+                       incProgress(0.2, detail = "Processing MANUFACTURER_PART_NUM...")
+                       Sys.sleep(0.5) # Simulated delay
+                       mhs_poh_tbl %>%
+                         select(PK_ID:`10`) %>%
+                         inner_join(
+                           contract_res(),
+                           by = c('MANUFACTURER_PART_NUM' = 'XREF PART NUMBER'),
+                           keep = TRUE,
+                           copy = TRUE
+                         ) %>%
+                         select(all_of(poh_col_order[[1]])) %>%
+                         collect() %>%
+                         select(all_of(poh_col_order[[2]])) %>%
+                         filter(CREATE_DATE >= start_date, CREATE_DATE <= end_date)
+                     }, {
+                       incProgress(0.2, detail = "Processing PREMIER_MANUFACTURER_CATALOG_NUMBER...")
+                       Sys.sleep(0.5) # Simulated delay
+                       mhs_poh_tbl %>%
+                         select(PK_ID:`10`) %>%
+                         inner_join(
+                           contract_res(),
+                           by = c('PREMIER_MANUFACTURER_CATALOG_NUMBER' = 'XREF PART NUMBER'),
+                           keep = TRUE,
+                           copy = TRUE
+                         ) %>%
+                         select(all_of(poh_col_order[[1]])) %>%
+                         collect() %>%
+                         select(all_of(poh_col_order[[2]])) %>%
+                         filter(CREATE_DATE >= start_date, CREATE_DATE <= end_date)
+                     }) %>%
+                       group_by(PK_ID) %>%
+                       filter(row_number() == 1) %>%
+                       ungroup() %>%
+                       filter(PO_SPEND != 0)
+                     
+                     # Step 3: Finalizing data (update progress to 100%)
+                     incProgress(0.3, detail = "Finalizing and cleaning data...")
+                     Sys.sleep(0.5) # Simulated delay for better visibility
+                     
+                     temp
+                   })
     })
+    
     
     output$location_selector <- renderUI({
       req(po_raw())
       selectizeInput(
         'facility_filter',
-        'Select Facilitys: ',
+        'Select Facilities: ',
         choices = unique(po_raw()$COMPANY_ID),
         multiple = T
       )
