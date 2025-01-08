@@ -444,7 +444,8 @@ shinyApp(
           by = c("VENDOR_NAME", "VENDOR_MATERIAL_NUM", "PO_UOM")
         ) %>%
         mutate(
-          Conversion_Factor = `C Rate MFG`,
+          Conversion_Factor = as.numeric(gsub("[^0-9.]", "", `C Rate MFG`)),
+          Conversion_Factor = if_else(is.na(Conversion_Factor), 0, Conversion_Factor),
           EA_Usage = Conversion_Factor * PO_QUANTITY,
           `Proposed Price` = as.numeric(gsub("[^0-9.]", "", `Proposed Price`)),
           `Proposed Price` = ifelse(is.na(`Proposed Price`), 0, `Proposed Price`),
