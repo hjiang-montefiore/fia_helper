@@ -234,7 +234,8 @@ shinyApp(
                               UOM,
                               `C Rate MFG`,
                               `XREF ITEM DESCRIPTION`,
-                              `XREF PART NUMBER`)
+                              `XREF PART NUMBER`) %>%
+                     mutate(`XREF PART NUMBER` = as.character(`XREF PART NUMBER`))
                      
                      # Step 2: Apply transformations based on input choices (update progress to 60%)
                      incProgress(0.3, detail = "Applying transformations...")
