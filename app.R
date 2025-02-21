@@ -5,6 +5,8 @@ library(tidyverse)
 library(DBI)
 library(readxl)
 library(yaml)
+library(shinyWidgets)
+library(shinyjs)
 
 
 downloadButton <- function(...) {
@@ -13,6 +15,40 @@ downloadButton <- function(...) {
   tag
 }
 
+
+find_start_end_date <- function(date = NULL) {
+  if (is.null(date)) {
+    previous_date = today()
+  } else{
+    previous_date <- as.Date(date)
+  }
+  
+  # Extract the year and month from the previous date
+  year <- format(previous_date, "%Y")
+  month <- format(previous_date, "%m")
+  
+  # Create a new date object with the extracted year and month
+  latest_last_month_date <- as.Date(paste(year, month, "01", sep = "-"))
+  
+  # Find the last day of the previous month
+  last_day <- as.Date(format(latest_last_month_date, "%Y-%m-%d")) - 1
+  
+  new_month = as.integer(month) - 12
+  new_year = as.integer(year)
+  
+  
+  if (new_month <= 0) {
+    new_month <- new_month + 12
+    new_year <- new_year - 1
+  }
+  
+  start_day = as.Date(paste(new_year, new_month, '01', sep = '-'))
+  
+  
+  return(list(start_day, last_day))
+}
+
+default_dates = find_start_end_date()
 
 config <- yaml::read_yaml('config.yml')
 con_string = paste0(
@@ -24,6 +60,7 @@ con_string = paste0(
 )
 
 con <- dbConnect(odbc::odbc(), .connection_string = con_string)
+
 
 
 mhs_poh_tbl = tbl(con, 'vw_MHS_POH_ENHANCED_3YEAR_ROLLING')
@@ -51,16 +88,11 @@ poh_col_order[[2]][poh_col_order[[2]] == 'PROPOSED_PRICE'] = 'Proposed Price'
 poh_col_order[[2]][poh_col_order[[2]] == 'C_RATE_MFG'] = 'C Rate MFG'
 poh_col_order[[2]][poh_col_order[[2]] == 'XREF_ITEM_DESCRIPTION'] = 'XREF ITEM DESCRIPTION'
 poh_col_order[[2]][poh_col_order[[2]] == 'XREF_PART_NUMBER'] = 'XREF PART NUMBER'
-#poh_col_order[[1]][c(131,133,134, 135)] = c('Proposed Price', 'C Rate MFG',
-#                                            'XREF ITEM DESCRIPTION'
-#                                            ,'XREF PART NUMBER')
+
 
 
 
 poh_col_order[[1]] = poh_col_order[[1]][-136]
-#poh_col_order[[2]][c(131,133,134, 135)] = c('Proposed Price', 'C Rate MFG',
-#                                            'XREF ITEM DESCRIPTION'
-#                                            ,'XREF PART NUMBER')
 poh_col_order[[2]] = poh_col_order[[2]][-136]
 
 
@@ -126,7 +158,12 @@ shinyApp(
       tabPanel(
         "PO Data Collection",
         sidebarPanel(
-          dateRangeInput(inputId = 'date', label = 'Date Range'),
+          dateRangeInput(
+            inputId = 'date',
+            label = 'Date Range',
+            start = default_dates[[1]],
+            end = default_dates[[2]]
+          ),
           actionButton('action_po_collect', 'Raw PO Collection', class = 'btn-primary'),
           uiOutput('location_selector'),
           actionButton('refine_data', 'Refine Data', class = 'btn-primary'),
@@ -177,26 +214,68 @@ shinyApp(
       })
     })
     
-    observeEvent(raw_contract(), {
-      choices <- colnames(raw_contract())
-      updateSelectInput(inputId = 'catalog_col', choices = choices)
+    # observeEvent(raw_contract(), {
+    #   choices <- colnames(raw_contract())
+    #   updateSelectInput(inputId = 'catalog_col', choices = choices)
+    # })
+    # observeEvent(raw_contract(), {
+    #   choices <- colnames(raw_contract())
+    #   updateSelectInput(inputId = 'price_col', choices = choices)
+    # })
+    # observeEvent(raw_contract(), {
+    #   choices <- colnames(raw_contract())
+    #   updateSelectInput(inputId = 'c_rate_col', choices = choices)
+    # })
+    # observeEvent(raw_contract(), {
+    #   choices <- colnames(raw_contract())
+    #   updateSelectInput(inputId = 'uom_col', choices = choices)
+    # })
+    # observeEvent(raw_contract(), {
+    #   choices <- colnames(raw_contract())
+    #   updateSelectInput(inputId = 'description_col', choices = choices)
+    # })
+    
+    
+    # Define the input IDs for all column selection inputs
+    input_ids <- c(
+      'catalog_col', 
+      'price_col', 
+      'c_rate_col', 
+      'uom_col', 
+      'description_col'
+    )
+    
+    # Update all select inputs when raw_contract() changes
+    lapply(input_ids, function(id) {
+      observeEvent(raw_contract(), {
+        choices <- colnames(raw_contract())
+        updateSelectInput(inputId = id, choices = choices)
+      })
     })
-    observeEvent(raw_contract(), {
-      choices <- colnames(raw_contract())
-      updateSelectInput(inputId = 'price_col', choices = choices)
-    })
-    observeEvent(raw_contract(), {
-      choices <- colnames(raw_contract())
-      updateSelectInput(inputId = 'c_rate_col', choices = choices)
-    })
-    observeEvent(raw_contract(), {
-      choices <- colnames(raw_contract())
-      updateSelectInput(inputId = 'uom_col', choices = choices)
-    })
-    observeEvent(raw_contract(), {
-      choices <- colnames(raw_contract())
-      updateSelectInput(inputId = 'description_col', choices = choices)
-    })
+    
+    # Check for overlapping selections across all inputs
+    observe({
+      # Get current selections from all inputs
+      selections <- lapply(input_ids, function(id) input[[id]] %||% "")
+      selections <- unlist(selections)
+      
+      # Remove empty selections
+      non_empty <- selections[selections != ""]
+      
+      # Check for duplicates only if there are selections
+      if (length(non_empty) > 0) {
+        duplicates <- unique(non_empty[duplicated(non_empty)])
+        
+        # Show warning if duplicates found
+        if (length(duplicates) > 0) {
+          warning_msg <- paste(
+            "Warning: The following columns are selected in multiple fields:",
+            paste(duplicates, collapse = ", ")
+          )
+          showNotification(warning_msg, type = "warning")
+        }
+      }
+    }) %>% bindEvent(lapply(input_ids, function(id) input[[id]]))
     
     
     # Progress_bar_Start ------------------------------------------------------
@@ -235,7 +314,7 @@ shinyApp(
                               `C Rate MFG`,
                               `XREF ITEM DESCRIPTION`,
                               `XREF PART NUMBER`) %>%
-                     mutate(`XREF PART NUMBER` = as.character(`XREF PART NUMBER`))
+                       mutate(`XREF PART NUMBER` = as.character(`XREF PART NUMBER`))
                      
                      # Step 2: Apply transformations based on input choices (update progress to 60%)
                      incProgress(0.3, detail = "Applying transformations...")
@@ -385,11 +464,12 @@ shinyApp(
     
     output$location_selector <- renderUI({
       req(po_raw())
-      selectizeInput(
+      pickerInput(
         'facility_filter',
         'Select Facilities: ',
         choices = unique(po_raw()$COMPANY_ID),
-        multiple = T
+        multiple = T,
+        options = list(`actions-box` = T)
       )
     })
     
@@ -410,7 +490,7 @@ shinyApp(
         paste('FIA_Raw_', Sys.time(), '.csv', sep = '')
       },
       content = function(file) {
-        write_csv(po_location_filter(), file)
+        write_csv(po_location_filter(), file, na = '')
       }
     )
     item_level_raw <- eventReactive(input$refine_data, {
