@@ -18,7 +18,7 @@ downloadButton <- function(...) {
 
 find_start_end_date <- function(date = NULL) {
   if (is.null(date)) {
-    previous_date = today()
+    previous_date = Sys.Date()
   } else{
     previous_date <- as.Date(date)
   }
